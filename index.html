@@ -1,0 +1,269 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personal Expense Tracker</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 850px;
+            margin: 30px auto;
+            padding: 15px;
+            background: #f4f6f9;
+        }
+
+        h1, h2 { color: #243b55; }
+
+        input, select, button {
+            padding: 10px;
+            margin: 5px 0;
+            box-sizing: border-box;
+        }
+
+        input, select { width: 100%; }
+
+        button {
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            background: #1769aa;
+            color: white;
+        }
+
+        .delete { background: #c62828; }
+        .edit { background: #388e3c; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+
+        th { background: #e4ecf5; }
+
+        #message { font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Personal Expense Tracker</h1>
+
+    <h2 id="formTitle">Add Expense</h2>
+
+    <form id="expenseForm">
+        <label for="description">Description</label>
+        <input id="description" placeholder="e.g. Lunch" required>
+
+        <label for="amount">Amount (₹)</label>
+        <input id="amount" type="number" min="0.01"
+               step="0.01" placeholder="e.g. 150" required>
+
+        <label for="category">Category</label>
+        <select id="category" required>
+            <option value="">Select category</option>
+            <option>Food</option>
+            <option>Travel</option>
+            <option>Shopping</option>
+            <option>Bills</option>
+            <option>Other</option>
+        </select>
+
+        <button type="submit" id="submitButton">Add Expense</button>
+        <button type="button" id="cancelButton"
+                hidden onclick="cancelEdit()">Cancel Update</button>
+    </form>
+
+    <p id="message" role="status"></p>
+
+    <h2>All Expenses</h2>
+    <button type="button" onclick="loadExpenses()">Refresh Expenses</button>
+
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Description</th>
+                <th>Amount</th>
+                <th>Category</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="expenseList"></tbody>
+    </table>
+
+    <h2>Total Spent: ₹<span id="total">0.00</span></h2>
+
+    <script>
+        const API = "/expenses";
+        let editingId = null;
+
+        const form = document.getElementById("expenseForm");
+        const message = document.getElementById("message");
+
+        function showMessage(text, isError = false) {
+            message.textContent = text;
+            message.style.color = isError ? "red" : "green";
+        }
+
+        form.addEventListener("submit", async function(event) {
+            event.preventDefault();
+
+            const description =
+                document.getElementById("description").value.trim();
+            const amount =
+                Number(document.getElementById("amount").value);
+            const category =
+                document.getElementById("category").value;
+
+            if (!description || !category ||
+                !Number.isFinite(amount) || amount <= 0) {
+                showMessage(
+                    "Enter a description, category, and amount above zero.",
+                    true
+                );
+                return;
+            }
+
+            const expense = { description, amount, category };
+
+            try {
+                const url = editingId === null
+                    ? API
+                    : `${API}/${editingId}`;
+
+                const method = editingId === null ? "POST" : "PUT";
+
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(expense)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(
+                        data.detail || "Unable to save expense"
+                    );
+                }
+
+                showMessage(data.message);
+                form.reset();
+                cancelEdit();
+                await loadExpenses();
+
+            } catch (error) {
+                showMessage(error.message, true);
+            }
+        });
+
+        async function loadExpenses() {
+            try {
+                const response = await fetch(API);
+                if (!response.ok) {
+                    throw new Error("Unable to load expenses");
+                }
+
+                const data = await response.json();
+                const list = document.getElementById("expenseList");
+                list.replaceChildren();
+
+                let total = 0;
+
+                data.forEach(expense => {
+                    total += expense.amount;
+
+                    const row = document.createElement("tr");
+
+                    [
+                        expense.id,
+                        expense.description,
+                        expense.amount.toFixed(2),
+                        expense.category
+                    ].forEach(value => {
+                        const cell = document.createElement("td");
+                        cell.textContent = value;
+                        row.appendChild(cell);
+                    });
+
+                    const actions = document.createElement("td");
+
+                    const editButton = document.createElement("button");
+                    editButton.textContent = "Edit";
+                    editButton.className = "edit";
+                    editButton.onclick = () => editExpense(expense);
+
+                    const deleteButton = document.createElement("button");
+                    deleteButton.textContent = "Delete";
+                    deleteButton.className = "delete";
+                    deleteButton.onclick = () => deleteExpense(expense.id);
+
+                    actions.append(editButton, deleteButton);
+                    row.appendChild(actions);
+                    list.appendChild(row);
+                });
+
+                document.getElementById("total").textContent =
+                    total.toFixed(2);
+
+            } catch (error) {
+                showMessage(error.message, true);
+            }
+        }
+
+        function editExpense(expense) {
+            editingId = expense.id;
+
+            document.getElementById("description").value =
+                expense.description;
+            document.getElementById("amount").value = expense.amount;
+            document.getElementById("category").value = expense.category;
+
+            document.getElementById("formTitle").textContent =
+                `Update Expense #${expense.id}`;
+            document.getElementById("submitButton").textContent =
+                "Update Expense";
+            document.getElementById("cancelButton").hidden = false;
+
+            window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+
+        function cancelEdit() {
+            editingId = null;
+            document.getElementById("formTitle").textContent = "Add Expense";
+            document.getElementById("submitButton").textContent =
+                "Add Expense";
+            document.getElementById("cancelButton").hidden = true;
+        }
+
+        async function deleteExpense(id) {
+            try {
+                const response = await fetch(`${API}/${id}`, {
+                    method: "DELETE"
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || "Delete failed");
+                }
+
+                showMessage(data.message);
+                await loadExpenses();
+
+            } catch (error) {
+                showMessage(error.message, true);
+            }
+        }
+
+        loadExpenses();
+    </script>
+</body>
+</html>
